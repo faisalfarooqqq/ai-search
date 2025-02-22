@@ -1,4 +1,8 @@
-import { getCompanyById, handleQuestions } from "@/lib/actions";
+import {
+  getCompanyById,
+  handleGeminiQuestions,
+  handleOpenAIQuestions,
+} from "@/lib/actions";
 import { notFound } from "next/navigation";
 
 export default async function CompanyPage({
@@ -15,7 +19,7 @@ export default async function CompanyPage({
     (q: { questionText: string }) => q.questionText
   );
 
-  const result = await handleQuestions(company.siteUrl, questionList);
+  const result = await handleGeminiQuestions(questionList);
   const responseList = result.responses ?? [];
   return (
     <div>
