@@ -5,13 +5,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { addCompanyWithQuestions } from "@/lib/actions";
 
 export default function InputComponent() {
   const [site, setSite] = useState("");
   const [questions, setQuestions] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSave = () => {
+  const handleSubmit = async () => {
+    console.log("i was clicked");
     if (!site.trim()) {
       setError("Site URL is required.");
       return;
@@ -21,14 +25,28 @@ export default function InputComponent() {
       return;
     }
     setError("");
+    setSuccess("");
 
-    const data = { site, questions };
-    localStorage.setItem("formatData", JSON.stringify(data));
-    alert("Saved Sucessfully");
+    setLoading(true);
+
+    const questionArray = questions
+      .split("\n")
+      .map((q) => q.trim())
+      .filter((q) => q !== "");
+
+    try {
+      await addCompanyWithQuestions(site, site, questionArray);
+      setSuccess("Data saved successfully!");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setError("Error saving data: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="max-w-md mx-auto space-y-6 p-6">
+    <div className="w-full flex flex-col justify-center space-y-6 p-6">
       <div className="space-y-2">
         <Label htmlFor="site">Site</Label>
         <Input
@@ -45,12 +63,16 @@ export default function InputComponent() {
           placeholder="Enter your questions here"
           value={questions}
           onChange={(e) => setQuestions(e.target.value)}
-          className="min-h-[200px]"
+          className="min-h-[600px]"
         />
       </div>
       {error && <p className="text-red-500">{error}</p>}
-
-      <Button onClick={handleSave}>Save</Button>
+      {success && <p className="text-green-500">{success}</p>}
+      <div>
+        <Button onClick={handleSubmit} disabled={loading}>
+          {loading ? "Processing..." : "Submit"}
+        </Button>
+      </div>
     </div>
   );
 }
