@@ -1,0 +1,1 @@
+ALTER TABLE "llm_results" DROP COLUMN "response_text";
