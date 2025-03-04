@@ -6,7 +6,6 @@ import { companies, llmModels, llmResults, questions } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import Anthropic from "@anthropic-ai/sdk";
-import { extractRank } from "./extractRank";
 import { revalidatePath } from "next/cache";
 
 export type Question = {
@@ -42,7 +41,21 @@ export async function getNewGPTRanking(id: number) {
 
       const modelId = await getOrCreateModelId(model, "openai");
 
-      const rank = extractRank(response.answer, company.name, company.siteUrl);
+      if (!response.answer) {
+        await db.insert(llmResults).values({
+          questionId: response.questionId,
+          modelId,
+          rank: null,
+        });
+        continue;
+      }
+
+      const rank = await getBrandRankFromGptResponse(
+        response.answer,
+        company.name,
+        company.siteUrl,
+        model
+      );
 
       await db.insert(llmResults).values({
         questionId: response.questionId,
@@ -85,7 +98,21 @@ export async function getNewClaudeRanking(id: number) {
 
       const modelId = await getOrCreateModelId(model, "claude");
 
-      const rank = extractRank(response.answer, company.name, company.siteUrl);
+      if (!response.answer) {
+        await db.insert(llmResults).values({
+          questionId: response.questionId,
+          modelId,
+          rank: null,
+        });
+        continue;
+      }
+
+      const rank = await getBrandRankFromClaudeResponse(
+        response.answer,
+        company.name,
+        company.siteUrl,
+        model
+      );
 
       await db.insert(llmResults).values({
         questionId: response.questionId,
@@ -127,8 +154,16 @@ export async function getNewGeminiRanking(id: number) {
       }
 
       const modelId = await getOrCreateModelId(model, "gemini");
+      if (!response.answer) {
+        continue;
+      }
 
-      const rank = extractRank(response.answer, company.name, company.siteUrl);
+      const rank = await getBrandRankFromGeminiResponse(
+        response.answer,
+        company.name,
+        company.siteUrl,
+        model
+      );
 
       await db.insert(llmResults).values({
         questionId: response.questionId,
@@ -165,8 +200,25 @@ export async function handleOpenAIQuestions(
         messages: [
           {
             role: "system",
-            content:
-              "You are an assistant that provides brief, concise answers. For each question, generate a short response and assign it a rank based on relevance and accuracy.",
+            content: `
+            When answering questions, always follow this structured format:
+      
+            **Introduction**
+            - Provide a brief overview summarizing key points.
+            - Keep it concise and relevant to the question.
+      
+            **Main Content (List, Steps, Explanation, etc.)**
+            - If the answer involves multiple items, present them in a numbered or bullet-point format.
+            - For each item, include:
+              - Name or Title (if applicable)
+              - Description (what it is, why it matters)
+              - Key Details (e.g., benefits, features, challenges, or considerations)
+              - Best For / Use Cases (if applicable)
+      
+            **Conclusion**
+            - Provide a short summary or key takeaway.
+            - Optionally, include recommendations or next steps.
+          `,
           },
           { role: "user", content: q.questionText },
         ],
@@ -203,8 +255,25 @@ export async function handleGeminiQuestions(
     try {
       const modelInstance = gemini.getGenerativeModel({
         model: model,
-        systemInstruction:
-          "You are an assistant that provides brief, concise answers. For each question, generate a short response and assign it a rank based on relevance and accuracy.",
+        systemInstruction: `
+        When answering questions, always follow this structured format:
+  
+        **Introduction**
+        - Provide a brief overview summarizing key points.
+        - Keep it concise and relevant to the question.
+  
+        **Main Content (List, Steps, Explanation, etc.)**
+        - If the answer involves multiple items, present them in a numbered or bullet-point format.
+        - For each item, include:
+          - Name or Title (if applicable)
+          - Description (what it is, why it matters)
+          - Key Details (e.g., benefits, features, challenges, or considerations)
+          - Best For / Use Cases (if applicable)
+  
+        **Conclusion**
+        - Provide a short summary or key takeaway.
+        - Optionally, include recommendations or next steps.
+      `,
       });
       const response = await modelInstance.generateContent(
         question.questionText
@@ -227,8 +296,6 @@ export async function handleGeminiQuestions(
     }
   }
 
-  console.log(responses);
-
   return { responses };
 }
 
@@ -244,8 +311,6 @@ export async function handleClaudeQuestions(
       const response = await anthropic.messages.create({
         model: model,
         max_tokens: 1024,
-        system:
-          "You are an assistant that provides brief, concise answers. For each question, generate a short response and assign it a rank based on relevance and accuracy.",
 
         messages: [
           {
@@ -280,8 +345,6 @@ export async function handleClaudeQuestions(
       });
     }
   }
-
-  console.log(responses);
 
   return { responses };
 }
@@ -587,19 +650,132 @@ export async function fetchGeminiRankingData(companyId: number) {
 }
 
 export async function refreshRankingData(id: number, provider: string) {
-  // Use the provider parameter to determine which data to fetch
   if (provider === "gpt") {
-    console.log("fetching fresh data for: GPT");
     return getNewGPTRanking(id);
   } else if (provider === "claude") {
-    console.log("fetching fresh data for: Claude");
-
     return getNewClaudeRanking(id);
   } else if (provider === "gemini") {
-    console.log("fetching fresh data for: Gemini");
-
     return getNewGeminiRanking(id);
   } else {
     return { error: "Invalid provider" };
   }
+}
+
+async function getBrandRankFromGeminiResponse(
+  responseText: string,
+  companyName: string,
+  companyUrl: string,
+  model: string
+) {
+  const prompt = `
+  Given the following text, determine the rank of the company "${companyName}" (or its URL: "${companyUrl}").
+  If the company is explicitly ranked with a number (for example, "1.", "2)"), reply only with the rank number.
+  If the company is mentioned without a clear ranking, give it a rank and reply with rank.
+  If the company is not mentioned at all, reply with "null".
+  
+  Text:
+  ${responseText}
+  
+  Your answer should be exactly one of the following: a number (e.g., "1"), "unranked", or "null".
+    `;
+
+  const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+  const modelInstance = gemini.getGenerativeModel({
+    model: model,
+  });
+  const result = await modelInstance.generateContent(prompt);
+
+  const responseTextValue =
+    typeof result.response.text === "function"
+      ? result.response.text()
+      : result.response.text;
+
+  const trimmed = responseTextValue.trim().toLowerCase();
+  if (trimmed === "null") return null;
+  if (trimmed === "unranked") return null;
+  const rank = parseInt(trimmed, 10);
+  if (isNaN(rank)) return null;
+  return rank;
+}
+
+async function getBrandRankFromGptResponse(
+  responseText: string,
+  companyName: string,
+  companyUrl: string,
+  model: string
+) {
+  const prompt = `
+  Given the following text, determine the rank of the company "${companyName}" (or its URL: "${companyUrl}").
+  If the company is explicitly ranked with a number (for example, "1.", "2)"), reply only with the rank number.
+  If the company is mentioned without a clear ranking, give it a rank and reply with rank.
+  If the company is not mentioned at all, reply with "null".
+  
+  Text:
+  ${responseText}
+  
+  Your answer should be exactly one of the following: a number (e.g., "1"), "unranked", or "null".
+    `;
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const response = await openai.chat.completions.create({
+    model: model,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const trimmed = response.choices[0].message.content ?? "";
+  if (trimmed === "null") return null;
+  if (trimmed === "unranked") return null;
+  const rank = parseInt(trimmed, 10);
+  if (isNaN(rank)) return null;
+  return rank;
+}
+
+async function getBrandRankFromClaudeResponse(
+  responseText: string,
+  companyName: string,
+  companyUrl: string,
+  model: string
+) {
+  const prompt = `
+  Given the following text, determine the rank of the company "${companyName}" (or its URL: "${companyUrl}").
+  If the company is explicitly ranked with a number (for example, "1.", "2)"), reply only with the rank number.
+  If the company is mentioned without a clear ranking, give it a rank and reply with rank.
+  If the company is not mentioned at all, reply with "null".
+  
+  Text:
+  ${responseText}
+  `;
+
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  const response = await anthropic.messages.create({
+    model: model,
+    max_tokens: 1024,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: prompt }],
+      },
+    ],
+    system: `Your response should be exactly one of the following: a number (e.g., "1"), "unranked", or "null".`,
+  });
+
+  let answerText = "";
+  for (const block of response.content) {
+    if (block.type === "text") {
+      answerText = block.text;
+      break;
+    }
+  }
+
+  const trimmed = answerText;
+  if (trimmed === "null") return null;
+  if (trimmed === "unranked") return null;
+  const rank = parseInt(trimmed, 10);
+  if (isNaN(rank)) return null;
+
+  return rank;
 }

@@ -1,6 +1,7 @@
 import { getCompanyById } from "@/lib/actions";
 import RankingTable from "./ranking-table";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 export default async function Page({
   params,
@@ -11,5 +12,11 @@ export default async function Page({
   if (!company) {
     notFound();
   }
-  return <RankingTable id={company.id} provider={params.providername} />;
+  return (
+    <>
+      <Suspense fallback={<div>Loading</div>}>
+        <RankingTable id={company.id} provider={params.providername} />;
+      </Suspense>
+    </>
+  );
 }
