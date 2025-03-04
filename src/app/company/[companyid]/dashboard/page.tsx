@@ -1,8 +1,8 @@
 import { getCompanyById } from "@/lib/actions";
-import CompanyDashBoard from "./CompanyDashboard";
 import { notFound } from "next/navigation";
+import CompanyDashBoard from "../CompanyDashboard";
 
-export default async function CompanyPage({
+export default async function Page({
   params,
 }: {
   params: { companyid: string };
