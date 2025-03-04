@@ -25,7 +25,7 @@ function getProviderDisplayName(provider: string) {
   }
 }
 
-// Helper function to render rank with visual indicator
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getRankBadge(rank: any) {
   if (rank === null || rank === "N/A") {
     return <span className="text-muted-foreground">N/A</span>;
@@ -33,7 +33,6 @@ function getRankBadge(rank: any) {
 
   const rankNum = typeof rank === "string" ? Number.parseInt(rank, 10) : rank;
 
-  // Determine badge color based on rank
   let badgeVariant: "default" | "secondary" | "destructive" | "outline" =
     "outline";
   if (rankNum <= 3) badgeVariant = "default";
@@ -105,11 +104,11 @@ export default async function RankingTable({
 
   const headers = getColumnHeaders();
 
-  // Helper function to get value from row based on header key (unchanged)
-  const getCellValue = (row, key) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const getCellValue = (row: any, key: string) => {
     if (key === "question") return row.question;
-    if (key === "change") return row.change !== null ? row.change : "N/A";
-    if (key === "latestResponse") return row.latestResponse || "N/A";
+    // if (key === "change") return row.change !== null ? row.change : "N/A";
+    // if (key === "latestResponse") return row.latestResponse || "N/A";
 
     // For model-specific fields
     if (row[key]) {

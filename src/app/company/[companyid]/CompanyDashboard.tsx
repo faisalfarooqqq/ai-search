@@ -8,7 +8,16 @@ import {
 import { BarChart2, HelpCircle } from "lucide-react";
 import Link from "next/link";
 
-export default async function CompanyDashBoard({ company }) {
+interface Company {
+  id: number;
+  name: string;
+}
+
+export default async function CompanyDashBoard({
+  company,
+}: {
+  company: Company;
+}) {
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-2xl font-bold mb-6">
